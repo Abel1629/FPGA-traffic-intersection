@@ -9,13 +9,18 @@ module top (
     output wire        DP,      // 7-szegmenses tizedespont
     output wire [7:0]  AN,      // 7-szegmenses digit kiválasztók
     output wire        AUD_PWM, // Audio kimenet
-    output wire        AUD_SD   // Audio er?sít? engedélyezés
+    output wire        AUD_SD,  // Audio er?sít? engedélyezés
+    output wire [3:0]  VGA_R,   // VGA Piros (4 bit)
+    output wire [3:0]  VGA_G,   // VGA Zöld (4 bit)
+    output wire [3:0]  VGA_B,   // VGA Kék (4 bit)
+    output wire        VGA_HS,  // VGA vízszintes szinkron
+    output wire        VGA_VS   // VGA függ?leges szinkron
 );
 
-    // Kezel?szervek kiosztása (kerülve a kontakthibás SW[2]-t: SW[3] lesz a gyors mód!)
-    wire rst        = SW[15]; // Bal széls? kapcsoló: Reset
-    wire sound_en   = SW[1];  // SW[1]: Hangjelzés engedélyezése (1 = be, 0 = néma)
-    wire fast_mode  = SW[3];  // SW[3]: 5x gyorsított teszt üzemmód
+    // Kezel?szervek kiosztása
+    wire rst       = SW[15]; // Bal széls? kapcsoló: Reset
+    wire sound_en  = SW[1];  // SW[1]: Hangjelzés engedélyezése (1 = be, 0 = néma)
+    wire fast_mode = SW[3];  // SW[3]: 5x gyorsított teszt üzemmód
 
     // 1. Órajelosztó (1 Hz)
     wire tick_1hz;
@@ -54,13 +59,13 @@ module top (
         if (rst) begin
             ped_request_pending <= 1'b0;
         end else if (clear_ped_req) begin
-            ped_request_pending <= 1'b0; // Az állapotgép törli, amikor elindul a váltás
+            ped_request_pending <= 1'b0;
         end else if (ped_btn_pulse) begin
-            ped_request_pending <= 1'b1; // A gyalogos megnyomta a gombot
+            ped_request_pending <= 1'b1;
         end
     end
 
-    // 4. Közlekedési lámpa állapotgép (1. mód: egyszer? út + zebra)
+    // 4. Közlekedési lámpa állapotgép (1. mód)
     wire [2:0] car_light;      // [2]=Piros, [1]=Sárga, [0]=Zöld
     wire [1:0] ped_light;      // [1]=Piros, [0]=Zöld
     wire [5:0] display_sec;
@@ -80,7 +85,7 @@ module top (
         .current_state (fsm_state)
     );
 
-    // 5. 7-szegmenses kijelz? meghajtó (visszaszámláló)
+    // 5. 7-szegmenses kijelz? meghajtó
     seven_seg_driver u_7seg (
         .clk    (clk),
         .rst    (rst),
@@ -100,16 +105,42 @@ module top (
         .aud_sd       (AUD_SD)
     );
 
-    // LED-ek logikus elrendezése a kártyán:
-    assign LED[0]     = heartbeat_led;       // 1 Hz életjel
-    assign LED[1]     = ped_request_pending; // Világít, amíg a gyalogos kérés várakozik
-    assign LED[2]     = 1'b0;                // Tartalék
-    // Gyalogos lámpa (LED[4] = Piros, LED[3] = Zöld)
+    // 7. VGA Szinkronizáló és Rajzoló (640x480 @ 60 Hz)
+    wire       vga_video_on;
+    wire [9:0] vga_pixel_x;
+    wire [9:0] vga_pixel_y;
+
+    vga_sync u_vga_sync (
+        .clk      (clk),
+        .rst      (rst),
+        .hsync    (VGA_HS),
+        .vsync    (VGA_VS),
+        .video_on (vga_video_on),
+        .pixel_x  (vga_pixel_x),
+        .pixel_y  (vga_pixel_y)
+    );
+
+    vga_renderer_mode1 u_vga_render1 (
+        .video_on    (vga_video_on),
+        .pixel_x     (vga_pixel_x),
+        .pixel_y     (vga_pixel_y),
+        .car_light   (car_light),
+        .ped_light   (ped_light),
+        .display_sec (display_sec),
+        .ped_req     (ped_request_pending),
+        .vga_r       (VGA_R),
+        .vga_g       (VGA_G),
+        .vga_b       (VGA_B)
+    );
+
+    // LED-ek kiosztása
+    assign LED[0]     = heartbeat_led;
+    assign LED[1]     = ped_request_pending;
+    assign LED[2]     = 1'b0;
     assign LED[4:3]   = ped_light;
-    assign LED[5]     = 1'b0;                // Elválasztó üres LED
-    // Autós lámpa (LED[8] = Piros, LED[7] = Sárga, LED[6] = Zöld)
+    assign LED[5]     = 1'b0;
     assign LED[8:6]   = car_light;
     assign LED[14:9]  = 6'd0;
-    assign LED[15]    = rst;                 // Reset jelz?
+    assign LED[15]    = rst;
 
 endmodule
