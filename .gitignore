@@ -1,0 +1,25 @@
+# Vivado generált és ideiglenes mappák
+*.runs/
+*.cache/
+*.hw/
+*.ip_user_files/
+*.sim/
+*.srcs/sources_1/bd/*/hdl/
+.Xil/
+
+# Vivado naplófájlok és ideiglenes fájlok
+*.jou
+*.log
+*.str
+*.dmp
+*.pb
+*.wdb
+*.bit
+*.bin
+*.ltx
+vivado*.backup.log
+vivado*.backup.jou
+
+# Operációs rendszer fájlok
+Thumbs.db
+.DS_Store
