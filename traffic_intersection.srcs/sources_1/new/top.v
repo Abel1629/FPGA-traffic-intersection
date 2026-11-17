@@ -18,10 +18,11 @@ module top (
 );
 
     // Kezel?szervek kiosztása
-    wire rst        = SW[15]; // Bal széls? kapcsoló: Reset
+    wire mode_sel   = SW[0];  // SW[0]: 0 = 1. mód (egyszer?), 1 = 2. mód (komplex keresztez?dés)
     wire sound_en   = SW[1];  // SW[1]: Hangjelzés engedélyezése (1 = be, 0 = néma)
     wire fast_mode  = SW[3];  // SW[3]: 5x gyorsított teszt üzemmód
-    wire night_mode = SW[4];  // SW[4]: Éjszakai mód (1 = éjszaka / villogó sárga)
+    wire night_mode = SW[4];  // SW[4]: Éjszakai mód
+    wire rst        = SW[15]; // SW[15]: Reset
 
     // 1. Órajelosztó (1 Hz)
     wire tick_1hz;
@@ -52,7 +53,7 @@ module top (
         .btn_pulse (ped_btn_pulse)
     );
 
-    // 3. Gyalogos kérés tároló
+    // 3. Gyalogos kérés tároló (1. módhoz)
     reg  ped_request_pending;
     wire clear_ped_req;
 
@@ -61,53 +62,55 @@ module top (
             ped_request_pending <= 1'b0;
         end else if (clear_ped_req) begin
             ped_request_pending <= 1'b0;
-        end else if (ped_btn_pulse) begin
+        end else if (ped_btn_pulse && !mode_sel) begin
             ped_request_pending <= 1'b1;
         end
     end
 
-    // 4. Közlekedési lámpa állapotgép (1. mód + Éjszakai mód)
-    wire [2:0] car_light;      // [2]=Piros, [1]=Sárga, [0]=Zöld
-    wire [1:0] ped_light;      // [1]=Piros, [0]=Zöld
-    wire [5:0] display_sec;
-    wire       is_ped_green;
-    wire [2:0] fsm_state;
+    // 4. Közlekedési lámpa állapotgép (1. mód)
+    wire [2:0] m1_car_light;
+    wire [1:0] m1_ped_light;
+    wire [5:0] m1_display_sec;
+    wire       m1_is_ped_green;
+    wire [2:0] m1_fsm_state;
 
     traffic_fsm_mode1 u_fsm_mode1 (
         .clk           (clk),
-        .rst           (rst),
+        .rst           (rst || mode_sel),
         .tick_1hz      (tick_1hz),
         .night_mode    (night_mode),
         .ped_req       (ped_request_pending),
         .clear_ped_req (clear_ped_req),
-        .car_light     (car_light),
-        .ped_light     (ped_light),
-        .display_sec   (display_sec),
-        .is_ped_green  (is_ped_green),
-        .current_state (fsm_state)
+        .car_light     (m1_car_light),
+        .ped_light     (m1_ped_light),
+        .display_sec   (m1_display_sec),
+        .is_ped_green  (m1_is_ped_green),
+        .current_state (m1_fsm_state)
     );
 
     // 5. 7-szegmenses kijelz? meghajtó
+    wire [5:0] active_display_sec = mode_sel ? 6'd15 : m1_display_sec;
+
     seven_seg_driver u_7seg (
         .clk    (clk),
         .rst    (rst),
-        .number (display_sec),
+        .number (active_display_sec),
         .seg    (SEG),
         .dp     (DP),
         .an     (AN)
     );
 
-    // 6. Csipogó hangjelzés meghajtó
+    // 6. Csipogó hangjelzés meghajtó (1. módban aktív)
     audio_beeper u_beeper (
         .clk          (clk),
         .rst          (rst),
-        .enable_sound (sound_en),
-        .ped_green    (is_ped_green),
+        .enable_sound (sound_en && !mode_sel),
+        .ped_green    (m1_is_ped_green),
         .aud_pwm      (AUD_PWM),
         .aud_sd       (AUD_SD)
     );
 
-    // 7. VGA Szinkronizáló és Rajzoló (640x480 @ 60 Hz)
+    // 7. VGA Szinkronizáló és mindkét mód rajzolója
     wire       vga_video_on;
     wire [9:0] vga_pixel_x;
     wire [9:0] vga_pixel_y;
@@ -122,27 +125,59 @@ module top (
         .pixel_y  (vga_pixel_y)
     );
 
+    wire [3:0] r_m1, g_m1, b_m1;
     vga_renderer_mode1 u_vga_render1 (
         .video_on    (vga_video_on),
         .pixel_x     (vga_pixel_x),
         .pixel_y     (vga_pixel_y),
         .night_mode  (night_mode),
-        .car_light   (car_light),
-        .ped_light   (ped_light),
-        .display_sec (display_sec),
+        .car_light   (m1_car_light),
+        .ped_light   (m1_ped_light),
+        .display_sec (m1_display_sec),
         .ped_req     (ped_request_pending),
-        .vga_r       (VGA_R),
-        .vga_g       (VGA_G),
-        .vga_b       (VGA_B)
+        .vga_r       (r_m1),
+        .vga_g       (g_m1),
+        .vga_b       (b_m1)
     );
+
+    // 2. mód grafikai el?nézet (következ? lépésben kötjük rá az él? FSM-et!)
+    wire [3:0] r_m2, g_m2, b_m2;
+    vga_renderer_mode2 u_vga_render2 (
+        .video_on         (vga_video_on),
+        .pixel_x          (vga_pixel_x),
+        .pixel_y          (vga_pixel_y),
+        .main_outer_light (3'b001),        // F?út küls?: Zöld
+        .main_yield_yel   (heartbeat_led), // Sárga els?bbségadás villog
+        .main_inner_light (3'b100),        // F?út bels?: Piros
+        .west_light       (3'b100),        // Nyugat: Piros
+        .west_yield_yel   (1'b0),
+        .west_right_grn   (1'b0),
+        .east_light       (3'b100),        // Kelet: Piros
+        .east_yield_yel   (1'b0),
+        .east_right_grn   (1'b0),
+        .ped_west_light   (2'b01),         // Nyugati zebra: Zöld
+        .ped_east_light   (2'b01),         // Keleti zebra: Zöld
+        .ped_south_light  (2'b10),         // Déli zebra: Piros
+        .ped_north_light  (2'b10),         // Északi zebra: Piros
+        .display_sec      (6'd15),
+        .phase_num        (3'd1),
+        .vga_r            (r_m2),
+        .vga_g            (g_m2),
+        .vga_b            (b_m2)
+    );
+
+    // Képválasztó multiplexer az SW[0] kapcsoló alapján
+    assign VGA_R = mode_sel ? r_m2 : r_m1;
+    assign VGA_G = mode_sel ? g_m2 : g_m1;
+    assign VGA_B = mode_sel ? b_m2 : b_m1;
 
     // LED-ek kiosztása
     assign LED[0]     = heartbeat_led;
     assign LED[1]     = ped_request_pending;
-    assign LED[2]     = night_mode;          // Jelzi, ha aktív az éjszakai mód
-    assign LED[4:3]   = ped_light;
-    assign LED[5]     = 1'b0;
-    assign LED[8:6]   = car_light;
+    assign LED[2]     = night_mode;
+    assign LED[4:3]   = m1_ped_light;
+    assign LED[5]     = mode_sel;          // Jelzi, ha a 2. mód aktív
+    assign LED[8:6]   = m1_car_light;
     assign LED[14:9]  = 6'd0;
     assign LED[15]    = rst;
 
