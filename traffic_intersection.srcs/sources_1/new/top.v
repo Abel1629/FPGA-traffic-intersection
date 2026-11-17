@@ -18,9 +18,10 @@ module top (
 );
 
     // Kezel?szervek kiosztása
-    wire rst       = SW[15]; // Bal széls? kapcsoló: Reset
-    wire sound_en  = SW[1];  // SW[1]: Hangjelzés engedélyezése (1 = be, 0 = néma)
-    wire fast_mode = SW[3];  // SW[3]: 5x gyorsított teszt üzemmód
+    wire rst        = SW[15]; // Bal széls? kapcsoló: Reset
+    wire sound_en   = SW[1];  // SW[1]: Hangjelzés engedélyezése (1 = be, 0 = néma)
+    wire fast_mode  = SW[3];  // SW[3]: 5x gyorsított teszt üzemmód
+    wire night_mode = SW[4];  // SW[4]: Éjszakai mód (1 = éjszaka / villogó sárga)
 
     // 1. Órajelosztó (1 Hz)
     wire tick_1hz;
@@ -65,7 +66,7 @@ module top (
         end
     end
 
-    // 4. Közlekedési lámpa állapotgép (1. mód)
+    // 4. Közlekedési lámpa állapotgép (1. mód + Éjszakai mód)
     wire [2:0] car_light;      // [2]=Piros, [1]=Sárga, [0]=Zöld
     wire [1:0] ped_light;      // [1]=Piros, [0]=Zöld
     wire [5:0] display_sec;
@@ -76,6 +77,7 @@ module top (
         .clk           (clk),
         .rst           (rst),
         .tick_1hz      (tick_1hz),
+        .night_mode    (night_mode),
         .ped_req       (ped_request_pending),
         .clear_ped_req (clear_ped_req),
         .car_light     (car_light),
@@ -124,6 +126,7 @@ module top (
         .video_on    (vga_video_on),
         .pixel_x     (vga_pixel_x),
         .pixel_y     (vga_pixel_y),
+        .night_mode  (night_mode),
         .car_light   (car_light),
         .ped_light   (ped_light),
         .display_sec (display_sec),
@@ -136,7 +139,7 @@ module top (
     // LED-ek kiosztása
     assign LED[0]     = heartbeat_led;
     assign LED[1]     = ped_request_pending;
-    assign LED[2]     = 1'b0;
+    assign LED[2]     = night_mode;          // Jelzi, ha aktív az éjszakai mód
     assign LED[4:3]   = ped_light;
     assign LED[5]     = 1'b0;
     assign LED[8:6]   = car_light;
